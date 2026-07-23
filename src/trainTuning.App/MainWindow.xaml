@@ -1,0 +1,371 @@
+<Window x:Class="TrainTuning.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="trainTuning · 本地训练调优"
+        Width="1320"
+        Height="820"
+        MinWidth="1100"
+        MinHeight="680"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource WindowBackgroundBrush}">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="190" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Background="{StaticResource SidebarBrush}">
+            <Grid Margin="16,20">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="26" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Orientation="Horizontal">
+                    <Border Width="36" Height="36" CornerRadius="9" Background="#316BFF">
+                        <TextBlock Text="Y" Foreground="White" FontSize="19" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Margin="9,0,0,0">
+                        <TextBlock Text="trainTuning" Foreground="White" FontSize="15" FontWeight="SemiBold" />
+                        <TextBlock Text="LOCAL TRAINING LAB" Foreground="#7184A7" FontSize="8" FontWeight="SemiBold" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Row="2">
+                    <TextBlock Text="工作台" Foreground="#657797" FontSize="10" FontWeight="SemiBold" Margin="9,0,0,8" />
+                    <Border CornerRadius="7" Background="#1A2B4C" Padding="11,9">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="◆" Foreground="#6E9AFF" FontSize="10" Margin="0,1,9,0" />
+                            <TextBlock Text="智能调优" Foreground="White" FontSize="12" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </Border>
+                    <Border CornerRadius="7" Padding="11,9" Margin="0,3,0,0" Opacity="0.6">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="▤" Foreground="#8B9AB5" FontSize="12" Margin="0,0,9,0" />
+                            <TextBlock Text="训练历史" Foreground="#B6C0D2" FontSize="12" />
+                        </StackPanel>
+                    </Border>
+                    <Border CornerRadius="7" Padding="11,9" Margin="0,3,0,0" Opacity="0.6">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="◫" Foreground="#8B9AB5" FontSize="12" Margin="0,0,9,0" />
+                            <TextBlock Text="数据集分析" Foreground="#B6C0D2" FontSize="12" />
+                        </StackPanel>
+                    </Border>
+                    <Border CornerRadius="7" Padding="11,9" Margin="0,3,0,0" Opacity="0.6">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚙" Foreground="#8B9AB5" FontSize="12" Margin="0,0,9,0" />
+                            <TextBlock Text="环境设置" Foreground="#B6C0D2" FontSize="12" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <Border Grid.Row="4" Background="#12213C" BorderBrush="#263A5E" BorderThickness="1"
+                        CornerRadius="8" Padding="10">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="8" Height="8" Fill="#34D399" Margin="0,0,8,0" />
+                            <TextBlock Text="本地引擎" Foreground="#DCE6F7" FontSize="11" FontWeight="SemiBold" />
+                        </StackPanel>
+                        <TextBlock Text="{Binding StatusText}" Foreground="#7F91AE" FontSize="9.5"
+                                   Margin="16,4,0,0" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="64" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                <Grid Margin="22,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="智能训练调优" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock Text="根据数据、目标与显存生成可解释的训练起点" Foreground="{StaticResource MutedTextBrush}"
+                                   FontSize="10.5" Margin="0,3,0,0" />
+                    </StackPanel>
+                    <Border Grid.Column="1" Background="#F5F8FD" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="7" Padding="10,6" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="7" Height="7" Fill="#34D399" Margin="0,0,8,0" />
+                            <TextBlock Text=".NET 10 + Python 3.11" Foreground="#53627B" FontSize="10" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <Grid Margin="22,18,22,22">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="390" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <Border Style="{StaticResource SectionCardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="训练条件" FontSize="15" FontWeight="SemiBold" />
+                                <TextBlock Text="填写最关键的信息，推荐引擎会自动补齐其余参数。"
+                                           Foreground="{StaticResource MutedTextBrush}" FontSize="10.5" Margin="0,3,0,13" />
+
+                                <TextBlock Text="数据集 YAML" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Text="{Binding DatasetPath, UpdateSourceTrigger=PropertyChanged}"
+                                             Style="{StaticResource FieldTextBoxStyle}" />
+                                    <Button Grid.Column="2" Content="浏览…" Command="{Binding BrowseDatasetCommand}"
+                                            Style="{StaticResource SecondaryButtonStyle}" />
+                                </Grid>
+
+                                <Grid Margin="0,11,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="任务类型" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                        <ComboBox ItemsSource="{Binding Tasks}" SelectedItem="{Binding SelectedTask}"
+                                                  Style="{StaticResource FieldComboBoxStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="基础模型" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                        <ComboBox ItemsSource="{Binding ModelFamilies}" SelectedItem="{Binding SelectedModelFamily}"
+                                                  Style="{StaticResource FieldComboBoxStyle}" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Margin="0,11,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="训练图片" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                        <TextBox Text="{Binding ImageCount}" Style="{StaticResource FieldTextBoxStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="类别数" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                        <TextBox Text="{Binding ClassCount}" Style="{StaticResource FieldTextBoxStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="4">
+                                        <TextBlock Text="显存 GB" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                        <TextBox Text="{Binding GpuMemory}" Style="{StaticResource FieldTextBoxStyle}" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Margin="0,11,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="目标尺寸" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                        <ComboBox ItemsSource="{Binding ObjectSizes}" SelectedItem="{Binding SelectedObjectSize}"
+                                                  Style="{StaticResource FieldComboBoxStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="训练目标" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                        <ComboBox ItemsSource="{Binding Goals}" SelectedItem="{Binding SelectedGoal}"
+                                                  Style="{StaticResource FieldComboBoxStyle}" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Margin="0,11,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="类别分布" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                        <ComboBox ItemsSource="{Binding ClassBalances}" SelectedItem="{Binding SelectedClassBalance}"
+                                                  Style="{StaticResource FieldComboBoxStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="标注质量" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                        <ComboBox ItemsSource="{Binding LabelQualities}" SelectedItem="{Binding SelectedLabelQuality}"
+                                                  Style="{StaticResource FieldComboBoxStyle}" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <Button Content="生成推荐方案" Command="{Binding RecommendCommand}"
+                                        Style="{StaticResource PrimaryButtonStyle}" Margin="0,14,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource SectionCardStyle}" Margin="0,14,0,0">
+                            <StackPanel>
+                                <Grid>
+                                    <TextBlock Text="任务日志" FontSize="14" FontWeight="SemiBold" />
+                                    <TextBlock Text="最多保留 200 条" HorizontalAlignment="Right"
+                                               Foreground="{StaticResource MutedTextBrush}" FontSize="10" />
+                                </Grid>
+                                <ListBox ItemsSource="{Binding Logs}" Height="132" Margin="0,10,0,0"
+                                         Background="#0F1B2D" BorderThickness="0"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" Foreground="#B8C5D9" FontFamily="Consolas"
+                                                       FontSize="10" TextWrapping="Wrap" Margin="5,2" />
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2">
+                        <Border Style="{StaticResource SectionCardStyle}">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="推荐方案" FontSize="15" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding ModelName}" Foreground="{StaticResource PrimaryBrush}"
+                                                   FontSize="22" FontWeight="Bold" Margin="0,5,0,0" />
+                                    </StackPanel>
+                                    <Border Grid.Column="1" Background="#EAF8F2" CornerRadius="18" Padding="11,5"
+                                            VerticalAlignment="Top">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="可信度 " Foreground="#278568" FontSize="11" />
+                                            <TextBlock Text="{Binding Confidence, StringFormat={}{0}%}" Foreground="#167457"
+                                                       FontSize="12" FontWeight="Bold" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+
+                                <TextBlock Text="{Binding Summary}" Foreground="#5B6A81" FontSize="11"
+                                           TextWrapping="Wrap" LineHeight="18" Margin="0,9,0,0" />
+
+                                <ProgressBar Value="{Binding TrainingProgress, Mode=OneWay}" Height="6" Margin="0,11,0,0"
+                                             Foreground="{StaticResource PrimaryBrush}" Background="#E9EEF6" />
+
+                                <Grid Margin="0,11,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="8" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="8" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Button Grid.Column="0" Content="启动验证训练" Command="{Binding StartTrainingCommand}"
+                                            Style="{StaticResource PrimaryButtonStyle}" />
+                                    <Button Grid.Column="2" Content="停止" Command="{Binding StopTrainingCommand}"
+                                            Style="{StaticResource DangerButtonStyle}" />
+                                    <Button Grid.Column="4" Content="复制命令" Command="{Binding CopyCommandCommand}"
+                                            Style="{StaticResource SecondaryButtonStyle}" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource SectionCardStyle}" Margin="0,14,0,0">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,9">
+                                    <TextBlock Text="关键参数与推荐依据" FontSize="14" FontWeight="SemiBold" />
+                                    <TextBlock Text="可解释规则引擎" HorizontalAlignment="Right"
+                                               Foreground="{StaticResource MutedTextBrush}" FontSize="10.5" />
+                                </Grid>
+                                <DataGrid ItemsSource="{Binding Parameters}" AutoGenerateColumns="False"
+                                          CanUserAddRows="False" CanUserDeleteRows="False" CanUserResizeRows="False"
+                                          IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                          RowHeaderWidth="0" MinHeight="210" MaxHeight="280"
+                                          BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                                          HorizontalGridLinesBrush="#EEF2F7"
+                                          Background="White" AlternatingRowBackground="#FAFCFF">
+                                    <DataGrid.Resources>
+                                        <Style TargetType="DataGridColumnHeader">
+                                            <Setter Property="Background" Value="#F7F9FC" />
+                                            <Setter Property="Foreground" Value="#66758D" />
+                                            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
+                                            <Setter Property="FontSize" Value="10.5" />
+                                            <Setter Property="FontWeight" Value="SemiBold" />
+                                            <Setter Property="Padding" Value="8,6" />
+                                            <Setter Property="BorderThickness" Value="0,0,0,1" />
+                                            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+                                        </Style>
+                                        <Style TargetType="DataGridCell">
+                                            <Setter Property="BorderThickness" Value="0" />
+                                            <Setter Property="Padding" Value="8,4" />
+                                            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
+                                            <Setter Property="FontSize" Value="11" />
+                                            <Setter Property="VerticalAlignment" Value="Center" />
+                                        </Style>
+                                    </DataGrid.Resources>
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="参数" Binding="{Binding Label}" Width="100" />
+                                        <DataGridTextColumn Header="推荐值" Binding="{Binding Value}" Width="80" />
+                                        <DataGridTextColumn Header="分组" Binding="{Binding Category}" Width="65" />
+                                        <DataGridTextColumn Header="依据" Binding="{Binding Reason}" Width="*" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </StackPanel>
+                        </Border>
+
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="14" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource SectionCardStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="风险提示" FontSize="13" FontWeight="SemiBold" />
+                                    <ItemsControl ItemsSource="{Binding Warnings}" Margin="0,6,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="0,3">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="●" Foreground="#F59E0B" FontSize="8" Margin="0,3,8,0" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding}" Foreground="#66758D"
+                                                               FontSize="10.5" TextWrapping="Wrap" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Text="推荐是高质量起点；最终最优参数由验证集实测决定。"
+                                               Foreground="#98A4B6" FontSize="9.5" TextWrapping="Wrap" Margin="0,6,0,0" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="2" Style="{StaticResource SectionCardStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="训练命令" FontSize="13" FontWeight="SemiBold" />
+                                    <TextBox Text="{Binding CommandText, Mode=OneWay}" IsReadOnly="True"
+                                             Background="#0F1B2D" Foreground="#C8D7EE" BorderThickness="0"
+                                             FontFamily="Consolas" FontSize="10" TextWrapping="Wrap"
+                                             AcceptsReturn="True" MinHeight="62" Padding="8" Margin="0,7,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+                </Grid>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Window>

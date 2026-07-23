@@ -1,0 +1,24 @@
+# .NET
+**/bin/
+**/obj/
+
+# Python
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local training output
+runs/
+datasets/
+models/
+
+# Build and smoke-test output
+artifacts/
+*.log
+
+# IDE and user-local settings
+.vs/
+.idea/
+*.user
+*.suo
