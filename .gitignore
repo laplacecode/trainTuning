@@ -9,9 +9,13 @@
 venv/
 
 # Local training output
-runs/
-datasets/
-models/
+/runs/
+/datasets/
+/models/
+*.pt
+*.pth
+*.onnx
+*.ckpt
 
 # Build and smoke-test output
 artifacts/

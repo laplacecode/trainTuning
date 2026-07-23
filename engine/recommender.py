@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import math
 import os
-import shlex
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -63,9 +63,16 @@ def recommend(request: dict[str, Any]) -> dict[str, Any]:
     class_balance = _choice(request.get("class_balance"), {"balanced", "mild", "severe"}, "balanced")
     label_quality = _choice(request.get("label_quality"), {"high", "medium", "low"}, "high")
     dataset_path = str(request.get("dataset_path") or "data/dataset.yaml")
+    scene_type = _choice(
+        request.get("scene_type"),
+        {"fixed_industrial", "general"},
+        "general",
+    )
+    direction_sensitive = bool(request.get("direction_sensitive", False))
+    initial_weights = str(request.get("initial_weights_path") or "").strip()
 
     variant = requested_variant if requested_variant in VARIANTS else _choose_variant(gpu_memory, task, goal)
-    model_name = f"{family}{variant}.pt"
+    model_name = initial_weights or f"{family}{variant}.pt"
     imgsz = _choose_image_size(gpu_memory, task, object_size, goal)
     epochs = _choose_epochs(image_count, goal, label_quality)
     patience = max(20, min(60, round(epochs * 0.22)))
@@ -74,23 +81,39 @@ def recommend(request: dict[str, Any]) -> dict[str, Any]:
         workers = min(workers, 4)
 
     mosaic = 1.0 if object_size == "small" else 0.7 if object_size == "mixed" else 0.4
-    if image_count < 1000:
+    if scene_type == "fixed_industrial":
+        mosaic = 0.0 if direction_sensitive else 0.2
+    elif image_count < 1000:
         mosaic = min(1.0, mosaic + 0.15)
     if label_quality == "low":
         mosaic = max(0.3, mosaic - 0.2)
+        if scene_type == "fixed_industrial":
+            mosaic = 0.0
 
     mixup = 0.0
-    if image_count < 2500:
+    if image_count < 2500 and scene_type != "fixed_industrial":
         mixup = 0.08
-    if class_balance == "severe":
+    if class_balance == "severe" and scene_type != "fixed_industrial":
         mixup = max(mixup, 0.12)
     if label_quality == "low":
         mixup = 0.0
 
-    optimizer = "auto"
-    close_mosaic = 15 if object_size == "small" else 10
+    optimizer = "AdamW" if initial_weights else "auto"
+    lr0 = 0.0003 if initial_weights else 0.01
+    lrf = 0.05 if initial_weights else 0.01
+    nbs = 16 if initial_weights or image_count < 1000 else 64
+    close_mosaic = 0 if mosaic == 0 else 15 if object_size == "small" else 10
     batch: int | float = 0.70 if gpu_memory >= 4 else 0.55
     cache: bool | str = "disk" if image_count <= 8000 else False
+    fixed_scene = scene_type == "fixed_industrial"
+    hsv_h = 0.003 if fixed_scene else 0.015
+    hsv_s = 0.15 if fixed_scene else 0.7
+    hsv_v = 0.20 if fixed_scene else 0.4
+    translate = 0.03 if fixed_scene else 0.1
+    scale = 0.15 if fixed_scene else 0.5
+    degrees = 0.0 if fixed_scene or direction_sensitive else 5.0
+    fliplr = 0.0 if direction_sensitive or fixed_scene else 0.5
+    flipud = 0.0
 
     parameters = [
         Parameter("imgsz", "输入尺寸", imgsz, "基础",
@@ -102,7 +125,14 @@ def recommend(request: dict[str, Any]) -> dict[str, Any]:
         Parameter("patience", "早停耐心值", patience, "训练",
                   "在充分收敛与避免无效训练之间取平衡。"),
         Parameter("optimizer", "优化器", optimizer, "优化",
-                  "交给当前 Ultralytics 根据模型和迭代规模选择优化器。"),
+                  "已有权重微调使用 AdamW 和小学习率；从通用预训练起步则自动选择。"),
+        Parameter("lr0", "初始学习率", lr0, "优化",
+                  "已有任务权重采用小步长微调，避免破坏已学习特征。"
+                  if initial_weights else "通用预训练起步使用标准初始学习率。"),
+        Parameter("lrf", "最终学习率比例", lrf, "优化",
+                  "配合余弦退火平滑收敛，并保留训练后期的细调能力。"),
+        Parameter("nbs", "标称 Batch", nbs, "优化",
+                  "小数据或已有权重微调时增加每轮有效参数更新次数。"),
         Parameter("cos_lr", "余弦学习率", goal != "speed", "优化",
                   "精度或均衡目标使用平滑退火；速度优先关闭以简化短训。"),
         Parameter("mosaic", "Mosaic", round(mosaic, 2), "增强",
@@ -111,6 +141,22 @@ def recommend(request: dict[str, Any]) -> dict[str, Any]:
                   "小数据或类别失衡时提供轻量正则化。"),
         Parameter("close_mosaic", "关闭 Mosaic", close_mosaic, "增强",
                   "训练末期关闭强增强以稳定定位精度。"),
+        Parameter("hsv_h", "色相扰动", hsv_h, "增强",
+                  "固定工业相机使用弱颜色增强，减少不符合现场的颜色失真。"),
+        Parameter("hsv_s", "饱和度扰动", hsv_s, "增强",
+                  "根据采集场景限制颜色变化幅度。"),
+        Parameter("hsv_v", "明度扰动", hsv_v, "增强",
+                  "保留合理光照扰动，同时避免偏离真实工位。"),
+        Parameter("degrees", "旋转增强", degrees, "增强",
+                  "固定工位或方向敏感任务不生成语义错误的旋转样本。"),
+        Parameter("translate", "平移增强", translate, "增强",
+                  "固定工位只保留轻量位置扰动。"),
+        Parameter("scale", "缩放增强", scale, "增强",
+                  "固定相机限制缩放范围，避免生成不真实拍摄距离。"),
+        Parameter("fliplr", "水平翻转", fliplr, "增强",
+                  "左右/方向具有语义时必须关闭水平翻转。"),
+        Parameter("flipud", "垂直翻转", flipud, "增强",
+                  "默认关闭垂直翻转，避免制造不真实工位。"),
         Parameter("amp", "混合精度", True, "性能",
                   "NVIDIA GPU 上通常能降低显存占用并提升吞吐。"),
         Parameter("cache", "数据缓存", cache, "性能",
@@ -121,6 +167,10 @@ def recommend(request: dict[str, Any]) -> dict[str, Any]:
                   "自定义数据训练优先采用迁移学习。"),
         Parameter("device", "训练设备", _device_value(gpu_count), "硬件",
                   "使用指定数量的本机 GPU。"),
+        Parameter("seed", "随机种子", 0, "复现",
+                  "候选实验固定随机性，确保参数对比公平。"),
+        Parameter("deterministic", "确定性训练", True, "复现",
+                  "优先保证实验可复现，便于可靠比较候选方案。"),
     ]
 
     if task == "segment":
@@ -145,10 +195,28 @@ def recommend(request: dict[str, Any]) -> dict[str, Any]:
         label_quality=label_quality,
         model_name=model_name,
         imgsz=imgsz,
+        scene_type=scene_type,
+        direction_sensitive=direction_sensitive,
+        initial_weights=initial_weights,
     )
     confidence = _confidence(image_count, label_quality, class_balance, len(warnings))
-    summary = _summary(model_name, imgsz, epochs, goal, object_size, gpu_memory)
+    summary = _summary(
+        model_name,
+        imgsz,
+        epochs,
+        goal,
+        object_size,
+        gpu_memory,
+        initial_weights=bool(initial_weights),
+        fixed_scene=fixed_scene,
+    )
     command = _build_command(task, config)
+    experiments = _experiment_plan(
+        config,
+        initial_weights=bool(initial_weights),
+        fixed_scene=fixed_scene,
+        gpu_memory=gpu_memory,
+    )
 
     return {
         "model": model_name,
@@ -158,6 +226,7 @@ def recommend(request: dict[str, Any]) -> dict[str, Any]:
         "parameters": [parameter.to_dict() for parameter in parameters],
         "warnings": warnings,
         "config": config,
+        "experiments": experiments,
     }
 
 
@@ -227,6 +296,12 @@ def _warnings(**values: Any) -> list[str]:
         warnings.append("小目标需要较高输入分辨率，但当前显存会限制 batch 或模型规模。")
     if values["task"] == "segment" and values["gpu_memory"] < 6:
         warnings.append("实例分割显存需求较高，发生 OOM 时优先降低 batch 利用率。")
+    if values["scene_type"] == "fixed_industrial":
+        warnings.append("固定工业场景应按工件或采集批次划分数据，避免连续帧泄漏到验证集。")
+    if values["direction_sensitive"]:
+        warnings.append("方向具有类别语义，已关闭水平翻转和旋转增强，防止生成错误标签。")
+    if values["initial_weights"]:
+        warnings.append("检测到已有任务权重，将保留原检测头并采用小学习率微调；请保留原模型作为基线。")
     if not warnings:
         warnings.append("当前条件未发现明显高风险项，建议先进行 10–20 轮冒烟训练。")
     return warnings
@@ -250,12 +325,26 @@ def _confidence(image_count: int, label_quality: str, class_balance: str, warnin
     return max(45, min(92, score))
 
 
-def _summary(model: str, imgsz: int, epochs: int, goal: str, object_size: str, memory: float) -> str:
+def _summary(
+    model: str,
+    imgsz: int,
+    epochs: int,
+    goal: str,
+    object_size: str,
+    memory: float,
+    *,
+    initial_weights: bool,
+    fixed_scene: bool,
+) -> str:
     goal_text = {"balanced": "精度与速度均衡", "accuracy": "精度优先", "speed": "训练效率优先"}[goal]
     size_text = {"small": "小目标", "mixed": "混合尺寸目标", "large": "大目标"}[object_size]
+    model_display = Path(model).name if initial_weights else model
+    strategy = "已有权重小学习率微调" if initial_weights else "通用预训练权重训练"
+    scene = "固定工业工位弱增强" if fixed_scene else "通用场景增强"
     return (
-        f"基于 {memory:g} GB 显存和{size_text}场景，建议以 {model}、"
-        f"{imgsz}px 输入训练 {epochs} 轮作为第一组基线；策略偏向{goal_text}。"
+        f"基于 {memory:g} GB 显存和{size_text}场景，建议以 {model_display}、"
+        f"{imgsz}px 输入训练 {epochs} 轮作为第一组基线；采用{strategy}、{scene}，"
+        f"策略偏向{goal_text}。"
     )
 
 
@@ -282,7 +371,9 @@ def _device_value(gpu_count: int) -> str:
 def _build_command(task: str, config: dict[str, Any]) -> str:
     order = [
         "model", "data", "epochs", "imgsz", "batch", "optimizer", "patience",
-        "cos_lr", "mosaic", "mixup", "close_mosaic", "amp", "cache", "workers", "device",
+        "lr0", "lrf", "nbs", "cos_lr", "mosaic", "mixup", "close_mosaic",
+        "hsv_h", "hsv_s", "hsv_v", "degrees", "translate", "scale", "fliplr",
+        "flipud", "amp", "cache", "workers", "device", "seed", "deterministic",
     ]
     parts = ["yolo", task, "train"]
     for key in order:
@@ -293,10 +384,73 @@ def _build_command(task: str, config: dict[str, Any]) -> str:
             encoded = str(value).lower()
         else:
             encoded = str(value)
-        if key == "data":
+        if key in {"data", "model"}:
             encoded = f'"{encoded}"'
         parts.append(f"{key}={encoded}")
     return " ".join(parts)
+
+
+def _experiment_plan(
+    config: dict[str, Any],
+    *,
+    initial_weights: bool,
+    fixed_scene: bool,
+    gpu_memory: float,
+) -> list[dict[str, Any]]:
+    experiments = [
+        {
+            "name": "Baseline",
+            "change": "不改参数",
+            "reason": "先得到可复现基线；后续候选保持数据划分和随机种子一致。",
+            "config_overrides": {},
+        }
+    ]
+
+    if initial_weights:
+        experiments.append(
+            {
+                "name": "较小学习率",
+                "change": f"仅 lr0: {config['lr0']} → {max(float(config['lr0']) / 3, 1e-5):g}",
+                "reason": "验证已有任务权重是否需要更保守的微调步长。",
+                "config_overrides": {
+                    "lr0": max(float(config["lr0"]) / 3, 1e-5),
+                },
+            }
+        )
+    else:
+        current_size = int(config["imgsz"])
+        candidate_size = current_size + 160 if gpu_memory >= 10 else max(320, current_size - 128)
+        candidate_size = int(math.ceil(candidate_size / 32) * 32)
+        experiments.append(
+            {
+                "name": "分辨率对照",
+                "change": f"仅 imgsz: {current_size} → {candidate_size}",
+                "reason": "以实测 mAP50-95 和速度判断分辨率，不假设越大越好。",
+                "config_overrides": {"imgsz": candidate_size},
+            }
+        )
+
+    if fixed_scene:
+        current_mosaic = float(config["mosaic"])
+        candidate_mosaic = 0.0 if current_mosaic > 0 else 0.2
+        experiments.append(
+            {
+                "name": "增强强度对照",
+                "change": f"仅 mosaic: {current_mosaic:g} → {candidate_mosaic:g}",
+                "reason": "固定工位需要用独立实验确认 Mosaic 是否破坏真实空间关系。",
+                "config_overrides": {"mosaic": candidate_mosaic},
+            }
+        )
+    else:
+        experiments.append(
+            {
+                "name": "模型规模对照",
+                "change": "仅更换相邻规模模型",
+                "reason": "比较速度与 mAP50-95，避免多个超参数同时变化。",
+                "config_overrides": {},
+            }
+        )
+    return experiments
 
 
 def _choice(value: Any, choices: Any, default: str) -> str:

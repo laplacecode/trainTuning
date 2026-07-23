@@ -24,14 +24,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _selectedGoal = "均衡";
     private string _selectedClassBalance = "基本均衡";
     private string _selectedLabelQuality = "较高";
+    private string _selectedSceneType = "固定工业相机";
+    private string _initialWeightsPath = string.Empty;
+    private bool _directionSensitive;
     private string _statusText = "准备就绪";
     private string _modelName = "尚未生成";
     private string _summary = "填写数据集与硬件情况，生成第一组训练参数。";
     private string _commandText = string.Empty;
+    private string _datasetAuditSummary = "生成推荐方案时将自动审计本地 YOLO 数据集。";
+    private string _currentEpochText = "尚未开始训练";
+    private string _trainingSummaryText = "训练结束后将在这里显示最佳轮次与下一步实验建议。";
     private int _confidence;
     private double _trainingProgress;
     private bool _isBusy;
     private bool _hasRecommendation;
+    private TrainingAdjustment? _pendingAdjustment;
+    private Dictionary<string, JsonElement> _recommendedConfig = [];
 
     public MainViewModel()
     {
@@ -40,6 +48,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         StopTrainingCommand = new RelayCommand(StopTraining, () => IsBusy);
         CopyCommandCommand = new RelayCommand(CopyCommand, () => !string.IsNullOrWhiteSpace(CommandText));
         BrowseDatasetCommand = new RelayCommand(BrowseDataset);
+        BrowseWeightsCommand = new RelayCommand(BrowseWeights);
+        AcceptAdjustmentCommand = new AsyncRelayCommand(
+            () => RespondToAdjustmentAsync(true),
+            () => IsBusy && HasPendingAdjustment);
+        SkipAdjustmentCommand = new AsyncRelayCommand(
+            () => RespondToAdjustmentAsync(false),
+            () => IsBusy && HasPendingAdjustment);
         AddLog("应用已启动，Python 训练引擎等待任务。");
     }
 
@@ -49,16 +64,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public IReadOnlyList<string> Goals { get; } = ["均衡", "精度优先", "速度优先"];
     public IReadOnlyList<string> ClassBalances { get; } = ["基本均衡", "轻度失衡", "严重失衡"];
     public IReadOnlyList<string> LabelQualities { get; } = ["较高", "一般", "较低"];
+    public IReadOnlyList<string> SceneTypes { get; } = ["固定工业相机", "通用场景"];
 
     public ObservableCollection<RecommendedParameter> Parameters { get; } = [];
     public ObservableCollection<string> Warnings { get; } = [];
     public ObservableCollection<string> Logs { get; } = [];
+    public ObservableCollection<TrainingMetricItem> TrainingMetrics { get; } = [];
+    public ObservableCollection<ExperimentCandidate> Experiments { get; } = [];
 
     public AsyncRelayCommand RecommendCommand { get; }
     public AsyncRelayCommand StartTrainingCommand { get; }
     public RelayCommand StopTrainingCommand { get; }
     public RelayCommand CopyCommandCommand { get; }
     public RelayCommand BrowseDatasetCommand { get; }
+    public RelayCommand BrowseWeightsCommand { get; }
+    public AsyncRelayCommand AcceptAdjustmentCommand { get; }
+    public AsyncRelayCommand SkipAdjustmentCommand { get; }
 
     public string DatasetPath { get => _datasetPath; set => SetProperty(ref _datasetPath, value); }
     public string SelectedTask { get => _selectedTask; set => SetProperty(ref _selectedTask, value); }
@@ -70,12 +91,33 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string SelectedGoal { get => _selectedGoal; set => SetProperty(ref _selectedGoal, value); }
     public string SelectedClassBalance { get => _selectedClassBalance; set => SetProperty(ref _selectedClassBalance, value); }
     public string SelectedLabelQuality { get => _selectedLabelQuality; set => SetProperty(ref _selectedLabelQuality, value); }
+    public string SelectedSceneType { get => _selectedSceneType; set => SetProperty(ref _selectedSceneType, value); }
+    public string InitialWeightsPath { get => _initialWeightsPath; set => SetProperty(ref _initialWeightsPath, value); }
+    public bool DirectionSensitive { get => _directionSensitive; set => SetProperty(ref _directionSensitive, value); }
     public string StatusText { get => _statusText; private set => SetProperty(ref _statusText, value); }
     public string ModelName { get => _modelName; private set => SetProperty(ref _modelName, value); }
     public string Summary { get => _summary; private set => SetProperty(ref _summary, value); }
     public string CommandText { get => _commandText; private set => SetProperty(ref _commandText, value); }
+    public string DatasetAuditSummary { get => _datasetAuditSummary; private set => SetProperty(ref _datasetAuditSummary, value); }
+    public string CurrentEpochText { get => _currentEpochText; private set => SetProperty(ref _currentEpochText, value); }
+    public string TrainingSummaryText { get => _trainingSummaryText; private set => SetProperty(ref _trainingSummaryText, value); }
     public int Confidence { get => _confidence; private set => SetProperty(ref _confidence, value); }
     public double TrainingProgress { get => _trainingProgress; private set => SetProperty(ref _trainingProgress, value); }
+
+    public TrainingAdjustment? PendingAdjustment
+    {
+        get => _pendingAdjustment;
+        private set
+        {
+            if (SetProperty(ref _pendingAdjustment, value))
+            {
+                OnPropertyChanged(nameof(HasPendingAdjustment));
+                RefreshCommands();
+            }
+        }
+    }
+
+    public bool HasPendingAdjustment => PendingAdjustment is not null;
 
     public bool IsBusy
     {
@@ -112,6 +154,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         StatusText = "正在分析条件";
         Parameters.Clear();
         Warnings.Clear();
+        DatasetAuditSummary = "正在检查数据集结构、标签和验证划分…";
         AddLog("正在请求参数推荐...");
 
         try
@@ -156,24 +199,25 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         IsBusy = true;
         TrainingProgress = 0;
+        TrainingMetrics.Clear();
+        PendingAdjustment = null;
+        CurrentEpochText = "准备启动训练";
+        TrainingSummaryText = "正在收集验证指标与调优决策…";
         StatusText = "训练任务运行中";
         _trainingCts = new CancellationTokenSource();
         AddLog("启动验证训练。未安装 Ultralytics 时将运行模拟训练。");
 
         try
         {
-            var config = Parameters.ToDictionary(
-                item => item.Key,
-                item => (object)item.Value);
-
             var request = new WorkerRequest
             {
                 Action = "train",
                 Payload = new
                 {
                     request = tuningRequest,
-                    config,
-                    dry_run_if_unavailable = true
+                    config = _recommendedConfig,
+                    dry_run_if_unavailable = true,
+                    adjustment_mode = "confirm"
                 }
             };
 
@@ -194,6 +238,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         finally
         {
+            PendingAdjustment = null;
             _trainingCts?.Dispose();
             _trainingCts = null;
             IsBusy = false;
@@ -212,8 +257,30 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 StatusText = workerEvent.Message ?? $"训练进度 {TrainingProgress:0}%";
                 if (workerEvent.Epoch is not null)
                 {
+                    CurrentEpochText = $"Epoch {workerEvent.Epoch}/{workerEvent.Epochs}";
                     AddLog($"Epoch {workerEvent.Epoch}/{workerEvent.Epochs} · {workerEvent.Message}");
                 }
+                UpdateTrainingMetrics(workerEvent.Data);
+                break;
+            case "adjustment_proposed" when workerEvent.Adjustment is not null:
+                PendingAdjustment = workerEvent.Adjustment;
+                StatusText = "等待确认调优建议";
+                AddLog(
+                    $"调优建议：{workerEvent.Adjustment.Title}（可信度 {workerEvent.Adjustment.Confidence}%）");
+                break;
+            case "adjustment_applied":
+                PendingAdjustment = null;
+                StatusText = "已应用调优，继续训练";
+                AddLog(workerEvent.Message ?? "训练调整已应用。");
+                break;
+            case "adjustment_skipped":
+                PendingAdjustment = null;
+                StatusText = "已跳过调优，继续训练";
+                AddLog(workerEvent.Message ?? "训练调整已跳过。");
+                break;
+            case "training_summary":
+                UpdateTrainingSummary(workerEvent.Data, workerEvent.Message);
+                AddLog(workerEvent.Message ?? "训练复盘已生成。");
                 break;
             case "completed":
                 TrainingProgress = 100;
@@ -237,6 +304,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Summary = recommendation.Summary;
         Confidence = recommendation.Confidence;
         CommandText = recommendation.Command;
+        _recommendedConfig = recommendation.Config;
+        DatasetAuditSummary = recommendation.DatasetAudit?.Summary
+            ?? "数据集未执行本地审计。";
+        Experiments.Clear();
+        foreach (var experiment in recommendation.Experiments)
+        {
+            Experiments.Add(experiment);
+        }
         Parameters.Clear();
         foreach (var parameter in recommendation.Parameters)
         {
@@ -265,10 +340,33 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
+        if (!string.IsNullOrWhiteSpace(InitialWeightsPath) &&
+            !File.Exists(InitialWeightsPath))
+        {
+            MessageBox.Show(
+                "选择的初始化权重不存在，请重新选择 .pt 文件。",
+                "权重不存在",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return false;
+        }
+
+        var datasetPath = string.IsNullOrWhiteSpace(DatasetPath)
+            ? "data/dataset.yaml"
+            : DatasetPath.Trim();
+        if (File.Exists(datasetPath))
+        {
+            datasetPath = Path.GetFullPath(datasetPath);
+        }
+        var initialWeightsPath = InitialWeightsPath.Trim();
+        if (File.Exists(initialWeightsPath))
+        {
+            initialWeightsPath = Path.GetFullPath(initialWeightsPath);
+        }
 
         request = new TuningRequest
         {
-            DatasetPath = string.IsNullOrWhiteSpace(DatasetPath) ? "data/dataset.yaml" : DatasetPath.Trim(),
+            DatasetPath = datasetPath,
             Task = MapTask(SelectedTask),
             ModelFamily = MapModelFamily(SelectedModelFamily),
             ModelVariant = MapModelVariant(SelectedModelFamily),
@@ -278,7 +376,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             ObjectSize = MapObjectSize(SelectedObjectSize),
             TrainingGoal = MapGoal(SelectedGoal),
             ClassBalance = MapBalance(SelectedClassBalance),
-            LabelQuality = MapQuality(SelectedLabelQuality)
+            LabelQuality = MapQuality(SelectedLabelQuality),
+            SceneType = SelectedSceneType == "固定工业相机" ? "fixed_industrial" : "general",
+            DirectionSensitive = DirectionSensitive,
+            InitialWeightsPath = initialWeightsPath
         };
         return true;
     }
@@ -309,6 +410,132 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    private void BrowseWeights()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "选择已有 YOLO 权重（可选）",
+            Filter = "PyTorch 权重 (*.pt)|*.pt|所有文件 (*.*)|*.*",
+            CheckFileExists = true
+        };
+        if (dialog.ShowDialog() == true)
+        {
+            InitialWeightsPath = dialog.FileName;
+        }
+    }
+
+    private async Task RespondToAdjustmentAsync(bool accepted)
+    {
+        var adjustment = PendingAdjustment;
+        if (adjustment is null)
+        {
+            return;
+        }
+
+        PendingAdjustment = null;
+        StatusText = accepted ? "正在应用调优建议" : "正在跳过调优建议";
+        AddLog(accepted
+            ? $"已接受：{adjustment.Title}"
+            : $"已跳过：{adjustment.Title}");
+
+        try
+        {
+            await _workerService.SendControlAsync(
+                new WorkerControl
+                {
+                    ProposalId = adjustment.ProposalId,
+                    Accepted = accepted
+                },
+                _trainingCts?.Token ?? CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            AddLog($"发送调优确认失败：{exception.Message}");
+            StatusText = "调优确认发送失败";
+            _workerService.Stop();
+        }
+    }
+
+    private void UpdateTrainingMetrics(JsonElement? data)
+    {
+        if (data is null || data.Value.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        var preferredMetrics = new (string Key, string Label)[]
+        {
+            ("metrics/mAP50-95(B)", "mAP50-95"),
+            ("metrics/mAP50(B)", "mAP50"),
+            ("metrics/precision(B)", "Precision"),
+            ("metrics/recall(B)", "Recall"),
+            ("train/box_loss", "Train box loss"),
+            ("val/box_loss", "Val box loss"),
+            ("fitness", "Fitness"),
+            ("lr", "Learning rate")
+        };
+
+        var items = new List<TrainingMetricItem>();
+        foreach (var (key, label) in preferredMetrics)
+        {
+            if (!data.Value.TryGetProperty(key, out var value) ||
+                !value.TryGetDouble(out var numericValue))
+            {
+                continue;
+            }
+
+            items.Add(new TrainingMetricItem
+            {
+                Name = label,
+                Value = key == "lr"
+                    ? numericValue.ToString("0.######")
+                    : numericValue.ToString("0.0000")
+            });
+        }
+
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        TrainingMetrics.Clear();
+        foreach (var item in items)
+        {
+            TrainingMetrics.Add(item);
+        }
+    }
+
+    private void UpdateTrainingSummary(JsonElement? data, string? fallbackMessage)
+    {
+        if (data is null || data.Value.ValueKind != JsonValueKind.Object)
+        {
+            TrainingSummaryText = fallbackMessage ?? "训练复盘未返回结构化指标。";
+            return;
+        }
+
+        var lines = new List<string>();
+        if (data.Value.TryGetProperty("best_epoch", out var bestEpoch) &&
+            bestEpoch.TryGetInt32(out var epoch) &&
+            data.Value.TryGetProperty("best_score", out var bestScore) &&
+            bestScore.TryGetDouble(out var score))
+        {
+            lines.Add($"最佳验证指标 {score:0.0000}，出现在 Epoch {epoch}。");
+        }
+
+        if (data.Value.TryGetProperty("recommendations", out var recommendations) &&
+            recommendations.ValueKind == JsonValueKind.Array)
+        {
+            lines.AddRange(
+                recommendations.EnumerateArray()
+                    .Where(item => item.ValueKind == JsonValueKind.String)
+                    .Select(item => $"• {item.GetString()}"));
+        }
+
+        TrainingSummaryText = lines.Count > 0
+            ? string.Join(Environment.NewLine, lines)
+            : fallbackMessage ?? "训练复盘已生成。";
+    }
+
     private void AddLog(string message)
     {
         Logs.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
@@ -324,6 +551,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         StartTrainingCommand.RaiseCanExecuteChanged();
         StopTrainingCommand.RaiseCanExecuteChanged();
         CopyCommandCommand.RaiseCanExecuteChanged();
+        AcceptAdjustmentCommand.RaiseCanExecuteChanged();
+        SkipAdjustmentCommand.RaiseCanExecuteChanged();
     }
 
     private static string MapTask(string value) => value switch

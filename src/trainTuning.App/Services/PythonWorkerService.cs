@@ -9,6 +9,7 @@ namespace TrainTuning.App.Services;
 public sealed class PythonWorkerService : IDisposable
 {
     private readonly SemaphoreSlim _runLock = new(1, 1);
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
     private Process? _activeProcess;
 
     public bool IsRunning => _activeProcess is { HasExited: false };
@@ -53,9 +54,7 @@ public sealed class PythonWorkerService : IDisposable
             using var cancellationRegistration = cancellationToken.Register(Stop);
 
             var stderrTask = PumpErrorsAsync(_activeProcess, request.Id, onEvent);
-            var json = JsonSerializer.Serialize(request, JsonDefaults.Options);
-            await _activeProcess.StandardInput.WriteLineAsync(json);
-            _activeProcess.StandardInput.Close();
+            await WriteMessageAsync(request, cancellationToken);
 
             while (await _activeProcess.StandardOutput.ReadLineAsync(cancellationToken) is { } line)
             {
@@ -93,11 +92,24 @@ public sealed class PythonWorkerService : IDisposable
         }
         finally
         {
+            try
+            {
+                _activeProcess?.StandardInput.Close();
+            }
+            catch (InvalidOperationException)
+            {
+                // Process has already exited.
+            }
             _activeProcess?.Dispose();
             _activeProcess = null;
             _runLock.Release();
         }
     }
+
+    public Task SendControlAsync(
+        WorkerControl control,
+        CancellationToken cancellationToken = default) =>
+        WriteMessageAsync(control, cancellationToken);
 
     public void Stop()
     {
@@ -133,6 +145,29 @@ public sealed class PythonWorkerService : IDisposable
         }
     }
 
+    private async Task WriteMessageAsync(
+        object message,
+        CancellationToken cancellationToken)
+    {
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var process = _activeProcess;
+            if (process is null || process.HasExited)
+            {
+                throw new InvalidOperationException("Python Worker 当前没有运行。");
+            }
+
+            var json = JsonSerializer.Serialize(message, JsonDefaults.Options);
+            await process.StandardInput.WriteLineAsync(json.AsMemory(), cancellationToken);
+            await process.StandardInput.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
     private static string ResolvePythonExecutable()
     {
         var configured = Environment.GetEnvironmentVariable("TRAINTUNING_PYTHON");
@@ -154,5 +189,6 @@ public sealed class PythonWorkerService : IDisposable
         Stop();
         _activeProcess?.Dispose();
         _runLock.Dispose();
+        _writeLock.Dispose();
     }
 }
